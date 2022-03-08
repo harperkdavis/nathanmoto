@@ -11,8 +11,8 @@ let keys = {};
 
 const engine = Engine.create();
 
-let inGame = true;
-let inEditor = false;
+let inGame = false;
+let inEditor = true;
 
 let game = {
     bodies: [],
@@ -21,7 +21,7 @@ let game = {
     motoBackWheel: undefined,
     motoFrontWheel: undefined,
 
-    groundPlane: undefined,
+    grounds: [],
 
     cameraX: 0,
     cameraY: 0,
@@ -38,7 +38,8 @@ const OBJ_TYPES = {
 const EDIT_TOOLS = {
     SELECT: 0,
     MOVE: 1,
-    PAINT: 2,
+    DELETE: 2,
+    PAINT_GROUND: 3,
 }
 
 let editor = {
@@ -46,6 +47,9 @@ let editor = {
     selection: -1,
     
     tool: 0,
+
+    painting: false,
+    paintVertices: [],
 
     selectStart: {x: 0, y: 0},
     selectEnd: {x: 0, y: 0},
@@ -76,11 +80,11 @@ let map = {
 function setup() {
     createCanvas(windowWidth, windowHeight);
     document.addEventListener('contextmenu', event => event.preventDefault());
-    resetWorld();
 }
 
 function resetWorld() {
     game.bodies = [];
+    game.grounds = [];
 
     World.clear(engine.world);
     Engine.clear(engine);
@@ -128,31 +132,43 @@ function resetWorld() {
     game.bodies.push(game.motoBackWheel);
     game.bodies.push(game.motoFrontWheel);
 
-    game.groundPlane = new PhysicsBody(engine.world, Bodies.fromVertices(0, 0, [
-        {x: 0, y: 0},
-        {x: 2000, y: 0},
-        {x: 3000, y: 200},
-        {x: 4000, y: 500},
-        {x: 5000, y: 200},
-        {x: 5000, y: 2000},
-        {x: 0, y: 2000},
-    ], { isStatic: true }));
+    map.objects.forEach(obj => {
+        if (obj.type == OBJ_TYPES.STATIC) {
+            game.grounds.push(createStatic(obj));
+        } else if (obj.type == OBJ_TYPES.SPAWN_POINT) {
+            teleportCar(obj.position.x, obj.position.y);
 
-    moveToTopRight(game.groundPlane.body);
+            game.cameraX = obj.position.x;
+            game.cameraY = obj.position.y;
+        }
+    });
     
-    teleportCar(100, -100);
-
-    game.cameraX = 100;
-    game.cameraY = -100;
+    
 }
 
-function moveToTopRight(body) {
+function createStatic(obj) {
+    let topRight = getVertTopRight(obj.vertices);
+    let body = Bodies.fromVertices(0, 0, obj.vertices, {isStatic: true});
+    moveToTopRight(body, topRight.x, topRight.y);
+    return (new PhysicsBody(engine.world, body));
+}
+
+function getVertTopRight(vertices) {
+    let minX = Number.MAX_VALUE, minY = Number.MAX_VALUE;
+    vertices.forEach(vertex => {
+        minX = min(vertex.x, minX);
+        minY = min(vertex.y, minY);
+    });
+    return {x: minX, y: minY};
+}
+
+function moveToTopRight(body, x, y) {
     let minX = Number.MAX_VALUE, minY = Number.MAX_VALUE;
     body.vertices.forEach(vertex => {
         minX = min(vertex.x, minX);
         minY = min(vertex.y, minY);
     });
-    Body.setPosition(body, {x: -minX, y: -minY});
+    Body.setPosition(body, {x: -minX + x, y: -minY + y});
 }
 
 function teleportCar(x, y) {
@@ -195,6 +211,7 @@ function update() {
         updateGame();
     } else if (inEditor) {
         updateEditor();
+        resetWorld();
     }
 }
 
@@ -223,6 +240,22 @@ function updateGame() {
     if (keys[82] == 1) {
         resetWorld();
     }
+
+    if (keys[ENTER] == 1) {
+        inEditor = true;
+        inGame = false;
+    }
+}
+
+function switchTool(tool) {
+    if (tool < 0) {
+        tool = 0;
+    } else if (tool > 9) {
+        tool = 9;
+    }
+    editor.tool = tool;
+    editor.painting = false;
+    editor.paintVertices = [];
 }
 
 function updateEditor() {
@@ -249,6 +282,27 @@ function updateEditor() {
     if (keys[RIGHT_ARROW] >= 0 || keys[68] >= 0) {
         editor.cameraX -= 10 / editor.cameraZoom;
     }
+
+    if (keys[ENTER] == 1) {
+        inEditor = false;
+        inGame = true;
+    }
+
+    if (keys[48] == 1) {
+        switchTool(9);
+    }
+    if (keys[49] == 1) {
+        switchTool(0);
+    }
+    if (keys[50] == 1) {
+        switchTool(1);
+    }
+    if (keys[51] == 1) {
+        switchTool(2);
+    }
+    if (keys[52] == 1) {
+        switchTool(3);
+    }
 }
 
 function mouseDragged() {
@@ -273,37 +327,76 @@ function selectVec() {
 
 function mousePressed() {
     if (inEditor) {
+        const mouseWorld = toWorld(mouseX, mouseY);
         if (mouseButton == LEFT) {
             if (!(mouseX < 60 || (mouseX > width - 300 && mouseY < 400))) {
-                if (!editor.selecting) {
-                    let mouseWorld = toWorld(mouseX, mouseY);
-                    for (let i = 0; i < map.objects.length; i++) {
-                        let obj = map.objects[i];
-                        let pos = getEditorPosition(obj);
-                        if (dist(pos.x, pos.y, mouseWorld.x, mouseWorld.y) < 20) {
-                            if (editor.tool == EDIT_TOOLS.MOVE || editor.tool == EDIT_TOOLS.SELECT) {
-                                editor.selecting = true;
-                                editor.selection = i;
-                                editor.selectStart = mouseWorld;
+                if (editor.tool == EDIT_TOOLS.SELECT || editor.tool == EDIT_TOOLS.MOVE || editor.tool == EDIT_TOOLS.DELETE) {
+                    if (!editor.selecting) {
+                        for (let i = 0; i < map.objects.length; i++) {
+                            let obj = map.objects[i];
+                            let pos = getEditorPosition(obj);
+                            if (dist(pos.x, pos.y, mouseWorld.x, mouseWorld.y) < 20) {
+                                if (editor.tool == EDIT_TOOLS.MOVE || editor.tool == EDIT_TOOLS.SELECT) {
+                                    editor.selecting = true;
+                                    editor.selection = i;
+                                    editor.selectStart = mouseWorld;
+                                } else if (editor.tool == EDIT_TOOLS.DELETE) {
+                                    obj.deleteMe = true;
+                                }
                             }
                         }
-                    }
-                } else {
-                    if (editor.tool == EDIT_TOOLS.MOVE) {
-                        let sv = selectVec();
-                        let obj = map.objects[editor.selection];
-                        if (obj.type == OBJ_TYPES.STATIC) {
-                            obj.vertices.forEach(ver => {
-                                ver.x += sv.x;
-                                ver.y += sv.y;
-                            });
-                        } else if (obj.type == OBJ_TYPES.SPAWN_POINT || obj.type == OBJ_TYPES.CHECKPOINT || obj.type == OBJ_TYPES.END_POINT) {
-                            obj.position.x += sv.x;
-                            obj.position.y += sv.y;
+                        map.objects = map.objects.filter(obj => {
+                            if (obj.deleteMe !== undefined) {
+                                if (obj.type == OBJ_TYPES.STATIC || obj.type == OBJ_TYPES.CHECKPOINT) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        });
+                    } else {
+                        if (editor.tool == EDIT_TOOLS.MOVE) {
+                            let sv = selectVec();
+                            let obj = map.objects[editor.selection];
+                            if (obj.type == OBJ_TYPES.STATIC) {
+                                obj.vertices.forEach(ver => {
+                                    ver.x += sv.x;
+                                    ver.y += sv.y;
+                                });
+                            } else if (obj.type == OBJ_TYPES.SPAWN_POINT || obj.type == OBJ_TYPES.CHECKPOINT || obj.type == OBJ_TYPES.END_POINT) {
+                                obj.position.x += sv.x;
+                                obj.position.y += sv.y;
+                            }
                         }
+                        editor.selecting = false;
+                    } 
+                } else if (editor.tool == EDIT_TOOLS.PAINT_GROUND) {
+                    if (!editor.painting) {
+                        editor.painting = true;
+                        editor.paintVertices.push({...mouseWorld});
+                    } else {
+                        let prevVertex = editor.paintVertices[editor.paintVertices.length - 1];
+                        let firstVertex = editor.paintVertices[0];
+                        if (dist(prevVertex.x, prevVertex.y, mouseWorld.x, mouseWorld.y) > 10 && dist(firstVertex.x, firstVertex.y, mouseWorld.x, mouseWorld.y) > 10) {
+                            editor.paintVertices.push({...mouseWorld});
+                        } else {
+                            editor.painting = false;
+                            if (editor.paintVertices.length >= 3) {
+                                map.objects.push({
+                                    type: OBJ_TYPES.STATIC,
+                                    vertices: [...editor.paintVertices]
+                                });
+                            }
+                            editor.paintVertices = [];
+                        }
+                        
                     }
-                    editor.selecting = false;
-                } 
+                }
+            } else {
+                if (mouseX < 60) {
+                    if (mouseY > 10 && mouseY < 510) {
+                        switchTool(floor((mouseY - 10) / 50));
+                    }
+                }
             }
         }
     }
@@ -354,7 +447,9 @@ function drawGame() {
     line(game.motoFrontWheel.body.position.x, game.motoFrontWheel.body.position.y, game.motoFrontWheel.body.vertices[0].x, game.motoFrontWheel.body.vertices[0].y);
 
     fill(200);
-    game.groundPlane.draw();
+    game.grounds.forEach(gro => {
+        gro.draw();
+    });
 
     pop();
 
@@ -363,7 +458,7 @@ function drawGame() {
     textSize(16);
     textAlign(LEFT, TOP);
     text("nathan motorcycle or something idk", 16, 16);
-    text("pos: " + game.motoBody.body.position.x + ", " + game.motoBody.body.position.y, 16, 32);
+    text("enter to return to editor. r to restart. pos: " + game.motoBody.body.position.x + ", " + game.motoBody.body.position.y, 16, 32);
 }
 
 function drawEditor() {
@@ -422,16 +517,93 @@ function drawEditor() {
         ellipse(editorPos.x, editorPos.y, 40, 40);
     }
 
+    if (editor.painting) {
+        fill(200, 100);
+        stroke(0);
+        beginShape();
+        editor.paintVertices.forEach(ver => {
+            vertex(ver.x, ver.y);
+        });
+        endShape();
+    }
+
     pop();
 
-    stroke(0);
-    fill(255);
-    rect(width - 290, 10, 280, 380);
+    drawPanel(width - 290, 10, 280, 380, false);
     
     for (let i = 0; i < 10; i++) {
-        rect(10, 10 + i * 50, 40, 40);
+        drawPanel(10, 10 + i * 50, 40, 40, i == editor.tool ? 0.2 : 0);
+
+        if (i == EDIT_TOOLS.SELECT) { // select
+            fill(0);
+            noStroke();
+            triangle(17, 17 + i * 50, 30, 45 + i * 50, 45, 30 + i * 50);
+        } else if (i == EDIT_TOOLS.MOVE) { // move
+            fill(0);
+            noStroke();
+            triangle(30, 15 + i * 50, 25, 20 + i * 50, 35, 20 + i * 50);
+            triangle(30, 45 + i * 50, 25, 40 + i * 50, 35, 40 + i * 50);
+            triangle(15, 30 + i * 50, 20, 25 + i * 50, 20, 35 + i * 50);
+            triangle(45, 30 + i * 50, 40, 25 + i * 50, 40, 35 + i * 50);
+
+            rect(20, 28 + i * 50, 20, 4);
+            rect(28, 20 + i * 50, 4, 20);
+        } else if (i == EDIT_TOOLS.DELETE) {
+            noStroke();
+            fill(200, 10, 10);
+            beginShape();
+            vertex(15, 20 + i * 50);
+            vertex(20, 15 + i * 50);
+
+            vertex(30, 25 + i * 50);
+
+            vertex(40, 15 + i * 50);
+            vertex(45, 20 + i * 50);
+
+            vertex(35, 30 + i * 50);
+
+            vertex(45, 40 + i * 50);
+            vertex(40, 45 + i * 50);
+
+            vertex(30, 35 + i * 50);
+            
+            vertex(20, 45 + i * 50);
+            vertex(15, 40 + i * 50);
+
+            vertex(25, 30 + i * 50);
+
+            endShape(CLOSE);
+        } else if (i == EDIT_TOOLS.PAINT_GROUND) { // paint ground
+            fill(200);
+            stroke(0);
+            rect(15, 25 + i * 50, 30, 20);
+        }
+
+        fill(0);
+        noStroke(0);
+        textSize(12);
+        textAlign(RIGHT, TOP)
+        text((i + 1) % 10, 46, 12 + i * 50);
+
+        
     }
     
+    fill(0);
+    noStroke();
+    textSize(16);
+    textAlign(LEFT, TOP);
+    text("nathan motorcycle LEVEL EDITOR or something idk", 80, 16);
+    text("press enter to playtest. r to reset camera. zoom: " + editor.cameraZoom + "x", 80, 32);
+}
+
+function drawPanel(x, y, w, h, down) {
+    noStroke();
+    fill(0, 100);
+    rect(x + 5, y + 5, w, h);
+
+    stroke(0);
+    fill(255 * (1 - down), 255 * (1 - down), 255);
+    rect(x, y, w, h);
 }
 
 class PhysicsBody {
