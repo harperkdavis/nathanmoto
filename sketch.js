@@ -138,7 +138,7 @@ function resetWorld() {
     World.clear(engine.world);
     Engine.clear(engine);
 
-    engine.world.gravity.y = 1;
+    engine.world.gravity.y = GRAVITY;
 
     game.motoBody = new PhysicsBody(engine.world, Bodies.fromVertices(0, 0, [{x: 20, y: 0}, {x: 80, y: 0}, {x: 85, y: 30}, {x: 15, y: 30}], {friction: 0.0, density: BODY_DENSITY * 0.0001, frictionAir: AIR_FRICTION}));
     game.motoBackWheel = new PhysicsBody(engine.world, Bodies.circle(-35, 10, 20, {density: WHEEL_DENSITY * 0.0001, friction: WHEEL_FRICTION, frictionAir: AIR_FRICTION}));
