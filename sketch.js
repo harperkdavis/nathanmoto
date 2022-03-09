@@ -14,6 +14,19 @@ const engine = Engine.create();
 let inGame = false;
 let inEditor = true;
 
+let GRAVITY = 1;
+let FRONT_WHEEL_SPEED = 5;
+let BACK_WHEEL_SPEED = 10;
+let SPIN_SPEED = 8;
+let WHEEL_FRICTION = 1;
+let AIR_FRICTION = 0;
+let BODY_DENSITY = 10;
+let WHEEL_DENSITY = 10;
+let WHEEL_STIFFNESS = 0.2;
+
+let gravSlider, frontSlider, backSlider, spinSlider, frictionSlider, airFrictionSlider, bodyDensitySlider, wheelDensitySlider, stiffnessSlider;
+
+
 let game = {
     bodies: [],
 
@@ -72,7 +85,7 @@ let map = {
         },
         {
             type: OBJ_TYPES.STATIC,
-            vertices: [{x: 0, y: 0}, {x: 100, y: 0}, {x: 100, y: 100}, {x: 0, y: 100}],
+            vertices: [{x: 0, y: 0}, {x: 1000, y: 0}, {x: 1000, y: 100}, {x: 0, y: 100}],
         }
     ]
 };
@@ -80,6 +93,42 @@ let map = {
 function setup() {
     createCanvas(windowWidth, windowHeight);
     document.addEventListener('contextmenu', event => event.preventDefault());
+
+    gravSlider = createSlider(-1, 2, 1, 0.01);
+    gravSlider.position(width - 220, 40);
+    gravSlider.style('width', '200px');
+
+    frontSlider = createSlider(0, 30, 5, 0.01);
+    frontSlider.position(width - 220, 80);
+    frontSlider.style('width', '200px');
+
+    backSlider = createSlider(0, 30, 10, 0.01);
+    backSlider.position(width - 220, 120);
+    backSlider.style('width', '200px');
+
+    spinSlider = createSlider(0, 30, 8, 0.01);
+    spinSlider.position(width - 220, 160);
+    spinSlider.style('width', '200px');
+
+    frictionSlider = createSlider(0, 2, 1, 0.01);
+    frictionSlider.position(width - 220, 200);
+    frictionSlider.style('width', '200px');
+
+    airFrictionSlider = createSlider(0, 0.1, 0, 0.01);
+    airFrictionSlider.position(width - 220, 240);
+    airFrictionSlider.style('width', '200px');
+    
+    bodyDensitySlider = createSlider(0, 40, 10, 0.01);
+    bodyDensitySlider.position(width - 220, 280);
+    bodyDensitySlider.style('width', '200px');
+
+    wheelDensitySlider = createSlider(0, 40, 10, 0.01);
+    wheelDensitySlider.position(width - 220, 320);
+    wheelDensitySlider.style('width', '200px');
+
+    stiffnessSlider = createSlider(0, 100, 20, 0.01);
+    stiffnessSlider.position(width - 220, 360);
+    stiffnessSlider.style('width', '200px');
 }
 
 function resetWorld() {
@@ -89,11 +138,11 @@ function resetWorld() {
     World.clear(engine.world);
     Engine.clear(engine);
 
-    engine.world.gravity.y = 0.55;
+    engine.world.gravity.y = 1;
 
-    game.motoBody = new PhysicsBody(engine.world, Bodies.fromVertices(0, 0, [{x: 20, y: 0}, {x: 80, y: 0}, {x: 85, y: 30}, {x: 15, y: 30}], {friction: 0.0, density: 0.003, frictionAir: 0.0}));
-    game.motoBackWheel = new PhysicsBody(engine.world, Bodies.circle(-35, 10, 20, {friction: 1.0, frictionAir: 0.0}));
-    game.motoFrontWheel = new PhysicsBody(engine.world, Bodies.circle(35, 10, 20, {friction: 1.0, frictionAir: 0.0}));
+    game.motoBody = new PhysicsBody(engine.world, Bodies.fromVertices(0, 0, [{x: 20, y: 0}, {x: 80, y: 0}, {x: 85, y: 30}, {x: 15, y: 30}], {friction: 0.0, density: BODY_DENSITY * 0.0001, frictionAir: AIR_FRICTION}));
+    game.motoBackWheel = new PhysicsBody(engine.world, Bodies.circle(-35, 10, 20, {density: WHEEL_DENSITY * 0.0001, friction: WHEEL_FRICTION, frictionAir: AIR_FRICTION}));
+    game.motoFrontWheel = new PhysicsBody(engine.world, Bodies.circle(35, 10, 20, {density: WHEEL_DENSITY * 0.0001, friction: WHEEL_FRICTION, frictionAir: AIR_FRICTION}));
 
 
     game.motoFrontWheel.body.collisionFilter = {
@@ -117,7 +166,7 @@ function resetWorld() {
         bodyB: game.motoBackWheel.body,
         pointA: {x: -35, y: 10},
         length: 0,
-        stiffness: 0.15,
+        stiffness: WHEEL_STIFFNESS * 0.01,
     }));
 
     World.add(engine.world, Constraint.create({
@@ -125,7 +174,7 @@ function resetWorld() {
         bodyB: game.motoFrontWheel.body,
         pointA: {x: 35, y: 10},
         length: 0,
-        stiffness: 0.15,
+        stiffness: WHEEL_STIFFNESS * 0.01,
     }));
 
     game.bodies.push(game.motoBody);
@@ -142,7 +191,6 @@ function resetWorld() {
             game.cameraY = obj.position.y;
         }
     });
-    
     
 }
 
@@ -224,18 +272,18 @@ function updateGame() {
 
 
     if (keys[UP_ARROW] >= 0 || keys[87] >= 0) {
-        Body.setAngularVelocity(game.motoBackWheel.body, game.motoBackWheel.body.angularVelocity + 0.012);
-        Body.setAngularVelocity(game.motoFrontWheel.body, game.motoFrontWheel.body.angularVelocity + 0.0055);
+        Body.setAngularVelocity(game.motoBackWheel.body, game.motoBackWheel.body.angularVelocity + 0.001 * BACK_WHEEL_SPEED);
+        Body.setAngularVelocity(game.motoFrontWheel.body, game.motoFrontWheel.body.angularVelocity + 0.001 * FRONT_WHEEL_SPEED);
     }
     if (keys[DOWN_ARROW] >= 0 || keys[83] >= 0) {
-        Body.setAngularVelocity(game.motoBackWheel.body, game.motoBackWheel.body.angularVelocity - 0.012);
-        Body.setAngularVelocity(game.motoFrontWheel.body, game.motoFrontWheel.body.angularVelocity - 0.0055);
+        Body.setAngularVelocity(game.motoBackWheel.body, game.motoBackWheel.body.angularVelocity - 0.001 * BACK_WHEEL_SPEED);
+        Body.setAngularVelocity(game.motoFrontWheel.body, game.motoFrontWheel.body.angularVelocity - 0.001 * FRONT_WHEEL_SPEED);
     }
     if (keys[LEFT_ARROW] >= 0 || keys[65] >= 0) {
-        Body.setAngularVelocity(game.motoBody.body, game.motoBody.body.angularVelocity - 0.001);
+        Body.setAngularVelocity(game.motoBody.body, game.motoBody.body.angularVelocity - 0.0001 * SPIN_SPEED);
     }
     if (keys[RIGHT_ARROW] >= 0 || keys[68] >= 0) {
-        Body.setAngularVelocity(game.motoBody.body, game.motoBody.body.angularVelocity + 0.001);
+        Body.setAngularVelocity(game.motoBody.body, game.motoBody.body.angularVelocity + 0.0001 * SPIN_SPEED);
     }
     if (keys[82] == 1) {
         resetWorld();
@@ -431,6 +479,45 @@ function draw() {
     } else if (inEditor) {
         drawEditor();
     }
+
+    GRAVITY = gravSlider.value();
+    FRONT_WHEEL_SPEED = frontSlider.value();
+    BACK_WHEEL_SPEED = backSlider.value();
+    SPIN_SPEED = spinSlider.value();
+    WHEEL_FRICTION = frictionSlider.value();
+    AIR_FRICTION = airFrictionSlider.value();
+    BODY_DENSITY = bodyDensitySlider.value();
+    WHEEL_DENSITY = wheelDensitySlider.value();
+    WHEEL_STIFFNESS = stiffnessSlider.value();
+
+    drawPanel(width - 290, 10, 280, 380, false);
+
+    fill(0);
+    noStroke();
+    textAlign(LEFT, TOP);
+    textSize(16);
+
+    text("gravity", width - 280, 20);
+    text("front wheel speed", width - 280, 60);
+    text("back wheel speed", width - 280, 100);
+    text("spin speed", width - 280, 140);
+    text("wheel friction", width - 280, 180);
+    text("air friction", width - 280, 220);
+    text("body density", width - 280, 260);
+    text("wheel density", width - 280, 300);
+    text("wheel stiffness", width - 280, 340);
+
+    textAlign(RIGHT, TOP);
+
+    text(GRAVITY, width - 20, 20);
+    text(FRONT_WHEEL_SPEED, width - 20, 60);
+    text(BACK_WHEEL_SPEED, width - 20, 100);
+    text(SPIN_SPEED, width - 20, 140);
+    text(WHEEL_FRICTION, width - 20, 180);
+    text(AIR_FRICTION, width - 20, 220);
+    text(BODY_DENSITY, width - 20, 260);
+    text(WHEEL_DENSITY, width - 20, 300);
+    text(WHEEL_STIFFNESS, width - 20, 340);
 }
 
 function drawGame() {
@@ -529,7 +616,7 @@ function drawEditor() {
 
     pop();
 
-    drawPanel(width - 290, 10, 280, 380, false);
+    // drawPanel(width - 290, 10, 280, 380, false);
     
     for (let i = 0; i < 10; i++) {
         drawPanel(10, 10 + i * 50, 40, 40, i == editor.tool ? 0.2 : 0);
