@@ -507,6 +507,8 @@ function draw() {
     text("wheel density", width - 280, 300);
     text("wheel stiffness", width - 280, 340);
 
+    
+
     textAlign(RIGHT, TOP);
 
     text(GRAVITY, width - 20, 20);
@@ -518,6 +520,8 @@ function draw() {
     text(BODY_DENSITY, width - 20, 260);
     text(WHEEL_DENSITY, width - 20, 300);
     text(WHEEL_STIFFNESS, width - 20, 340);
+
+    text("press r while playtesting to apply changed values", width - 20, 400);
 }
 
 function drawGame() {
