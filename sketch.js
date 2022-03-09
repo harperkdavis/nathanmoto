@@ -118,15 +118,15 @@ function setup() {
     airFrictionSlider.position(width - 220, 240);
     airFrictionSlider.style('width', '200px');
     
-    bodyDensitySlider = createSlider(0, 40, 10, 0.01);
+    bodyDensitySlider = createSlider(0.01, 40, 10, 0.01);
     bodyDensitySlider.position(width - 220, 280);
     bodyDensitySlider.style('width', '200px');
 
-    wheelDensitySlider = createSlider(0, 40, 10, 0.01);
+    wheelDensitySlider = createSlider(0.01, 40, 10, 0.01);
     wheelDensitySlider.position(width - 220, 320);
     wheelDensitySlider.style('width', '200px');
 
-    stiffnessSlider = createSlider(0, 100, 20, 0.01);
+    stiffnessSlider = createSlider(0.01, 100, 20, 0.01);
     stiffnessSlider.position(width - 220, 360);
     stiffnessSlider.style('width', '200px');
 }
