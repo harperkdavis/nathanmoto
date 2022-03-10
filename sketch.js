@@ -448,7 +448,7 @@ function mousePressed() {
                         }
                         map.objects = map.objects.filter(obj => {
                             if (obj.deleteMe !== undefined) {
-                                if (obj.type == OBJ_TYPES.STATIC) {
+                                if (obj.type == OBJ_TYPES.STATIC || obj.type == OBJ_TYPES.DAMAGE) {
                                     return false;
                                 }
                             }
