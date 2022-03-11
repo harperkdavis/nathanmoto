@@ -12,27 +12,33 @@ let keys = {};
 
 const engine = Engine.create();
 
+let inMainMenu = false;
 let inGame = false;
 let inEditor = true;
 
 let GRAVITY = 0.6;
 let FRONT_WHEEL_SPEED = 9;
 let BACK_WHEEL_SPEED = 12;
-let SPIN_SPEED = 8;
+let SPIN_SPEED = 12;
 let WHEEL_FRICTION = 0.8;
-let AIR_FRICTION = 0.005;
+let AIR_FRICTION = 0.002;
 let BODY_DENSITY = 10;
 let WHEEL_DENSITY = 10;
 let WHEEL_STIFFNESS = 9;
 
 let gravSlider, frontSlider, backSlider, spinSlider, frictionSlider, airFrictionSlider, bodyDensitySlider, wheelDensitySlider, stiffnessSlider;
-
+let mapNameInput;
 
 let game = {
     bodies: [],
+    grounds: [],
     damageBodies: [],
 
-    detector: undefined,
+    damageDetector: undefined,
+    groundDetector: undefined,
+
+    prevGrounded: false,
+    grounded: false,
 
     motoBody: undefined,
     motoBackWheel: undefined,
@@ -40,8 +46,6 @@ let game = {
 
     motoFrontConstraint: undefined,
     motoBackConstraint: undefined,
-
-    grounds: [],
 
     cameraX: 0,
     cameraY: 0,
@@ -51,6 +55,10 @@ let game = {
     mapEndTime: 0,
     mapStartPoint: undefined,
     mapEndPoint: undefined,
+
+    flipDelay: 0,
+    flipLerp: 0,
+    flipTextLerp: 0,
 }
 
 const OBJ_TYPES = {
@@ -84,12 +92,14 @@ let editor = {
     cameraX: 0,
     cameraY: 0,
     cameraZoom: 1,
+
+    initialFlip: 0,
 }
 
 let nathanImage;
 
-let map = {
-    name: "Test Map",
+const defaultMap = {
+    name: "Default Map",
     objects: [
         {
             type: OBJ_TYPES.SPAWN_POINT,
@@ -104,7 +114,9 @@ let map = {
             vertices: [{x: 0, y: 0}, {x: 1000, y: 0}, {x: 1000, y: 100}, {x: 0, y: 100}],
         }
     ]
-};
+}
+
+let map = {...defaultMap};
 
 function setup() {
     createCanvas(windowWidth, windowHeight);
@@ -112,6 +124,13 @@ function setup() {
 
     nathanImage = loadImage("https://i.imgur.com/qNRBIvl.png");
 
+    createEditor();
+
+    let loadFile = document.getElementById('loadFile');
+    loadFile.addEventListener("change", actuallyLoadMapJson, false);
+}
+
+function createEditor() {
     gravSlider = createSlider(-1, 2, GRAVITY, 0.01);
     gravSlider.position(width - 220, 40);
     gravSlider.style('width', '200px');
@@ -147,6 +166,43 @@ function setup() {
     stiffnessSlider = createSlider(0.01, 100, WHEEL_STIFFNESS, 0.01);
     stiffnessSlider.position(width - 220, 360);
     stiffnessSlider.style('width', '200px');
+
+    mapNameInput = createInput(map.name);
+    mapNameInput.position(10, height - 150);
+    mapNameInput.size(100);
+}
+
+function destroyEditor() {
+
+}
+
+// https://stackoverflow.com/questions/19721439/download-json-object-as-a-file-from-browser
+function saveMapJson() {
+    let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(map));
+    let saveFile = document.getElementById('saveFile');
+    saveFile.setAttribute("href", dataStr);
+    saveFile.setAttribute("download", map.name.toLowerCase().trim() + ".json");
+    saveFile.click();
+}
+
+function loadMapJson() {
+    let loadFile = document.getElementById('loadFile');
+    loadFile.click();
+}
+
+async function actuallyLoadMapJson() {
+    console.log(loadFile.files);
+    
+    if (loadFile.files.length > 0) {
+        console.log(loadFile.files[0]);
+        let jsonResult = undefined;
+        await loadFile.files[0].text().then(res => jsonResult = JSON.parse(res));
+        map = jsonResult;
+        editor.cameraX = 0;
+        editor.cameraY = 0;
+        editor.cameraZoom = 1;
+        mapNameInput.value(map.name);
+    }
 }
 
 function resetWorld() {
@@ -222,16 +278,34 @@ function resetWorld() {
     game.cameraX = game.mapStartPoint.x;
     game.cameraY = game.mapStartPoint.y;
 
-    game.detector = Detector.create();
-    game.detector.bodies.push(game.motoBody.body);
-    game.detector.bodies.push(game.motoBackWheel.body);
-    game.detector.bodies.push(game.motoFrontWheel.body);
+    game.damageDetector = Detector.create();
+    game.groundDetector = Detector.create();
+
+    game.damageDetector.bodies.push(game.motoBody.body);
+    game.damageDetector.bodies.push(game.motoBackWheel.body);
+    game.damageDetector.bodies.push(game.motoFrontWheel.body);
+    
+    game.groundDetector.bodies.push(game.motoBody.body);
+    game.groundDetector.bodies.push(game.motoBackWheel.body);
+    game.groundDetector.bodies.push(game.motoFrontWheel.body);
+
     for (let dmgBody of game.damageBodies) {
-        game.detector.bodies.push(dmgBody.body);
+        game.damageDetector.bodies.push(dmgBody.body);
+    }
+
+    for (let groBody of game.grounds) {
+        game.groundDetector.bodies.push(groBody.body);
     }
     
     game.mapState = 0;
     game.mapStartTime = millis();
+
+    game.mapEndTime = 0;
+
+    game.flipDelay = 0;
+    game.flipLerp = 0;
+    game.flipTextLerp = 0;
+    game.initialFlip = 0;
 }
 
 function createStatic(obj) {
@@ -299,8 +373,11 @@ function update() {
         updateGame();
     } else if (inEditor) {
         updateEditor();
-        resetWorld();
     }
+}
+
+function getFlip() {
+    return floor((abs(game.motoBody.body.angle - game.initialFlip)) / TWO_PI);
 }
 
 function updateGame() {
@@ -330,11 +407,32 @@ function updateGame() {
         if (dist(game.motoBody.body.position.x, game.motoBody.body.position.y, game.mapEndPoint.x, game.mapEndPoint.y) < 200) {
             game.mapState = 1;
         }
-        if (Detector.collisions(game.detector).length > 0) {
+        game.grounded = Detector.collisions(game.groundDetector).length > 0;
+
+        if (!game.grounded && game.prevGrounded) {
+            game.initialFlip = game.motoBody.body.angle;
+        } else if (game.grounded && !game.prevGrounded) {
+            if (getFlip() > 0) {
+                game.mapStartTime += getFlip() * 500;
+            }
+            game.flipDelay = 0;
+        }
+
+        if (!game.grounded) {
+            game.flipDelay += 1;
+        }
+
+
+
+        game.flipLerp = lerp(game.flipLerp, game.flipDelay > 30, 0.1);
+        game.flipTextLerp = lerp(game.flipTextLerp, !game.grounded && getFlip() > 0, 0.1);
+
+        if (Detector.collisions(game.damageDetector).length > 0) {
             game.mapState = 2;
             Composite.remove(engine.world, game.motoBackConstraint, true);
             Composite.remove(engine.world, game.motoFrontConstraint, true);
         }
+        game.prevGrounded = game.grounded;
     }
 
 
@@ -361,7 +459,6 @@ function switchTool(tool) {
 
 function updateEditor() {
     if (keys[82] == 1) {
-        console.log('reset');
         editor.cameraX = 0;
         editor.cameraY = 0;
         editor.cameraZoom = 1;
@@ -387,6 +484,7 @@ function updateEditor() {
     if (keys[ENTER] == 1) {
         inEditor = false;
         inGame = true;
+        resetWorld();
     }
 
     if (keys[48] == 1) {
@@ -430,7 +528,7 @@ function mousePressed() {
     if (inEditor) {
         const mouseWorld = toWorld(mouseX, mouseY);
         if (mouseButton == LEFT) {
-            if (!(mouseX < 60 || (mouseX > width - 300 && mouseY < 400))) {
+            if (!(mouseX < 60 || (mouseX > width - 300 && mouseY < 400) || (mouseX < 110 && mouseY > height - 110))) {
                 if (editor.tool == EDIT_TOOLS.SELECT || editor.tool == EDIT_TOOLS.MOVE || editor.tool == EDIT_TOOLS.DELETE) {
                     if (!editor.selecting) {
                         for (let i = 0; i < map.objects.length; i++) {
@@ -498,6 +596,18 @@ function mousePressed() {
                         switchTool(floor((mouseY - 10) / 50));
                     }
                 }
+                if (mouseX > 10 && mouseX < 110) {
+                    if (mouseY > height - 112 && mouseY < height - 82) {
+                        map = {...defaultMap};
+                        editor.cameraX = 0;
+                        editor.cameraY = 0;
+                        editor.cameraZoom = 1;
+                    } else if (mouseY > height - 72 && mouseY < height - 42) {
+                        saveMapJson();
+                    } else if (mouseY > height - 32 && mouseY < height - 2) {
+                        loadMapJson();
+                    }
+                } 
             }
         }
     }
@@ -543,6 +653,8 @@ function draw() {
     WHEEL_DENSITY = wheelDensitySlider.value();
     WHEEL_STIFFNESS = stiffnessSlider.value();
 
+    map.name = mapNameInput.value().trim();
+
     drawPanel(width - 290, 10, 280, 380, false);
 
     fill(0);
@@ -559,8 +671,6 @@ function draw() {
     text("body density", width - 280, 260);
     text("wheel density", width - 280, 300);
     text("wheel stiffness", width - 280, 340);
-
-    
 
     textAlign(RIGHT, TOP);
 
@@ -625,7 +735,25 @@ function drawGame() {
     textAlign(CENTER, TOP);
     textSize(24);
     let time = game.mapEndTime - game.mapStartTime;
-    text(nf(floor((time / 1000 / 60) % 60), 2) + ":" + nf(floor((time / 1000) % 60), 2) + "." + nf(floor(time % 1000), 3), width / 2, 200);
+    text(nf(floor((time / 1000 / 60) % 60), 2) + ":" + nf(floor((time / 1000) % 60), 2) + "." + nf(floor(time % 1000), 3), width / 2, 100);
+
+    if (!game.grounded && game.flipDelay > 30) {
+        stroke(0);
+        fill(0, 0, 255, 100);
+        arc(width / 2, 260, 60 * game.flipLerp, 60 * game.flipLerp, game.initialFlip, game.motoBody.body.angle, PIE);
+    }
+
+    if (game.flipTextLerp > 0.1) {
+        fill(0);
+        noStroke();
+        textSize(32 * game.flipTextLerp);
+        textAlign(CENTER, TOP);
+        text("Flippin'", width / 2, 200);
+        text(nf(-getFlip() * 0.5, 1, 1) + " sec", width / 2, 240);
+    }
+
+    fill(0);
+    noStroke(); 
 
     if (time < 2000) {
         textSize(32);
@@ -688,10 +816,16 @@ function drawEditor() {
             fill(200, 0, 0, 40);
             stroke(200, 0, 0);
             rect(obj.position.x - 10 + sv.x, obj.position.y - 10 + sv.y, 20, 20);
+            
+            fill(100, 220, 100, 100);
+            noStroke();
+            ellipse(obj.position.x + sv.x, obj.position.y + sv.y, 400, 400);
 
             fill(200, 0, 0);
             noStroke();
             text("End Point", obj.position.x + sv.x, obj.position.y - 30 + sv.y);
+
+            
         }
 
         let editorPos = {...getEditorPosition(obj)};
@@ -700,7 +834,7 @@ function drawEditor() {
         const mouseDist = dist(editorPos.x, editorPos.y, mouseWorld.x, mouseWorld.y);
         
         fill(0, 100, 255, selected ? 100 : max(min(20 - mouseDist, 20), 0));
-        stroke(0, 100, 255, selected ? 200 : max(min(100 - mouseDist, 100), 40));
+        stroke(0, 100, 255, 255);
         
         ellipse(editorPos.x, editorPos.y, 40, 40);
     }
@@ -718,6 +852,14 @@ function drawEditor() {
             vertex(ver.x, ver.y);
         });
         endShape();
+
+        let lastVertex = editor.paintVertices[editor.paintVertices.length - 1];
+        stroke(0, 100);
+        line(lastVertex.x, lastVertex.y, mouseWorld.x, mouseWorld.y);
+
+        noFill();
+        ellipse(lastVertex.x, lastVertex.y, 20, 20);
+        ellipse(editor.paintVertices[0].x, editor.paintVertices[0].y, 20, 20);
     }
 
     pop();
@@ -784,11 +926,19 @@ function drawEditor() {
 
         
     }
-    
+
+    drawPanel(10, height - 120, 100, 30, false);
+    drawPanel(10, height - 80, 100, 30, false);
+    drawPanel(10, height - 40, 100, 30, false);
+
     fill(0);
     noStroke();
     textSize(16);
     textAlign(LEFT, TOP);
+    text("Reset Map", 20, height - 112);
+    text("Save Map", 20, height - 72);
+    text("Load Map", 20, height - 32);
+    
     text("nathan motorcycle LEVEL EDITOR or something idk", 80, 16);
     text("press enter to playtest. r to reset camera. zoom: " + editor.cameraZoom + "x", 80, 32);
 }

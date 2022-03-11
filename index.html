@@ -11,11 +11,16 @@
       margin: 0;
       overflow: hidden;
     }
+    #loadFile {
+      display: none;
+    }
   </style>
   <script src="lib/p5.min.js"></script>
   <script src="lib/decomp.min.js"></script>
   <script src="lib/matter.min.js"></script>
   <script src="sketch.js"></script>
+  <a id="saveFile" style="display:none"></a>
+  <input type="file" id="loadFile" value="file" accept=".json"/>
 </head>
 
 <body>
