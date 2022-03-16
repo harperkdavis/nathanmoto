@@ -17,21 +17,22 @@ let inGame = false;
 let inEditor = true;
 
 let GRAVITY = 0.6;
-let FRONT_WHEEL_SPEED = 9;
-let BACK_WHEEL_SPEED = 12;
+let FRONT_WHEEL_SPEED = 8;
+let BACK_WHEEL_SPEED = 10;
 let SPIN_SPEED = 12;
 let WHEEL_FRICTION = 0.8;
-let AIR_FRICTION = 0.002;
+let AIR_FRICTION = 0.004;
 let BODY_DENSITY = 10;
 let WHEEL_DENSITY = 10;
 let WHEEL_STIFFNESS = 9;
 
-let gravSlider, frontSlider, backSlider, spinSlider, frictionSlider, airFrictionSlider, bodyDensitySlider, wheelDensitySlider, stiffnessSlider;
+// let gravSlider, frontSlider, backSlider, spinSlider, frictionSlider, airFrictionSlider, bodyDensitySlider, wheelDensitySlider, stiffnessSlider;
 let mapNameInput;
 
 let game = {
-    bodies: [],
-    grounds: [],
+    
+    staticBodies: [],
+    dynamicBodies: [],
     damageBodies: [],
 
     damageDetector: undefined,
@@ -64,17 +65,19 @@ let game = {
 const OBJ_TYPES = {
     NONE: 0,
     STATIC: 1,
-    SPAWN_POINT: 2,
-    END_POINT: 3,
-    DAMAGE: 4,
+    DYNAMIC: 2,
+    DAMAGE: 3,
+    SPAWN_POINT: 4,
+    END_POINT: 5,
 };
 
 const EDIT_TOOLS = {
     SELECT: 0,
     MOVE: 1,
     DELETE: 2,
-    PAINT_GROUND: 3,
-    PAINT_DAMAGE: 4,
+    PAINT_STATIC: 3,
+    PAINT_DYNAMIC: 4,
+    PAINT_DAMAGE: 5,
 }
 
 let editor = {
@@ -131,6 +134,7 @@ function setup() {
 }
 
 function createEditor() {
+    /*
     gravSlider = createSlider(-1, 2, GRAVITY, 0.01);
     gravSlider.position(width - 220, 40);
     gravSlider.style('width', '200px');
@@ -166,7 +170,7 @@ function createEditor() {
     stiffnessSlider = createSlider(0.01, 100, WHEEL_STIFFNESS, 0.01);
     stiffnessSlider.position(width - 220, 360);
     stiffnessSlider.style('width', '200px');
-
+    */
     mapNameInput = createInput(map.name);
     mapNameInput.position(10, height - 150);
     mapNameInput.size(100);
@@ -206,18 +210,19 @@ async function actuallyLoadMapJson() {
 }
 
 function resetWorld() {
-    game.bodies = [];
+
     game.damageBodies = [];
-    game.grounds = [];
+    game.staticBodies = [];
+    game.dynamicBodies = [];
 
     World.clear(engine.world);
     Engine.clear(engine);
 
     engine.world.gravity.y = GRAVITY;
 
-    game.motoBody = new PhysicsBody(engine.world, Bodies.fromVertices(0, 0, [{x: 20, y: 0}, {x: 80, y: 0}, {x: 85, y: 30}, {x: 15, y: 30}], {friction: 0.0, density: BODY_DENSITY * 0.0001, frictionAir: AIR_FRICTION}));
-    game.motoBackWheel = new PhysicsBody(engine.world, Bodies.circle(-35, 10, 20, {density: WHEEL_DENSITY * 0.0001, friction: WHEEL_FRICTION, frictionAir: AIR_FRICTION}));
-    game.motoFrontWheel = new PhysicsBody(engine.world, Bodies.circle(35, 10, 20, {density: WHEEL_DENSITY * 0.0001, friction: WHEEL_FRICTION, frictionAir: AIR_FRICTION}));
+    game.motoBody = new PhysicsBody(engine.world, Bodies.fromVertices(0, 0, [{x: 20, y: 0}, {x: 80, y: 0}, {x: 80, y: 30}, {x: 20, y: 30}], {friction: 0.0, density: BODY_DENSITY * 0.0001, frictionAir: AIR_FRICTION}));
+    game.motoBackWheel = new PhysicsBody(engine.world, Bodies.circle(-35, 0, 20, {density: WHEEL_DENSITY * 0.0001, friction: WHEEL_FRICTION, frictionAir: AIR_FRICTION}));
+    game.motoFrontWheel = new PhysicsBody(engine.world, Bodies.circle(35, 0, 20, {density: WHEEL_DENSITY * 0.0001, friction: WHEEL_FRICTION, frictionAir: AIR_FRICTION}));
 
 
     game.motoFrontWheel.body.collisionFilter = {
@@ -238,7 +243,7 @@ function resetWorld() {
     game.motoBackConstraint = Constraint.create({
         bodyA: game.motoBody.body,
         bodyB: game.motoBackWheel.body,
-        pointA: {x: -35, y: 10},
+        pointA: {x: -35, y: 0},
         length: 0,
         stiffness: WHEEL_STIFFNESS * 0.01,
     });
@@ -247,29 +252,27 @@ function resetWorld() {
     game.motoFrontConstraint = Constraint.create({
         bodyA: game.motoBody.body,
         bodyB: game.motoFrontWheel.body,
-        pointA: {x: 35, y: 10},
+        pointA: {x: 35, y: 0},
         length: 0,
         stiffness: WHEEL_STIFFNESS * 0.01,
     });
 
     World.add(engine.world, game.motoFrontConstraint);
 
-    game.bodies.push(game.motoBody);
-    game.bodies.push(game.motoBackWheel);
-    game.bodies.push(game.motoFrontWheel);
-
     game.mapStartPoint = {x: 0, y: 0};
     game.mapEndPoint = {x: 0, y: 0};
 
     map.objects.forEach(obj => {
         if (obj.type == OBJ_TYPES.STATIC) {
-            game.grounds.push(createStatic(obj));
+            game.staticBodies.push(createStatic(obj));
         } else if (obj.type == OBJ_TYPES.SPAWN_POINT) {
             game.mapStartPoint = {x: obj.position.x, y: obj.position.y};
         } else if (obj.type == OBJ_TYPES.END_POINT) {
             game.mapEndPoint = {x: obj.position.x, y: obj.position.y};
         } else if (obj.type == OBJ_TYPES.DAMAGE) {
             game.damageBodies.push(createStatic(obj));
+        } else if (obj.type == OBJ_TYPES.DYNAMIC) {
+            game.dynamicBodies.push(createDynamic(obj));
         }
     });
 
@@ -293,8 +296,13 @@ function resetWorld() {
         game.damageDetector.bodies.push(dmgBody.body);
     }
 
-    for (let groBody of game.grounds) {
+    for (let groBody of game.staticBodies) {
         game.groundDetector.bodies.push(groBody.body);
+    }
+
+    for (let dynBody of game.dynamicBodies) {
+        // game.groundDetector.bodies.push(dynBody.body);
+        // console.log(game.groundDetector.bodies);
     }
     
     game.mapState = 0;
@@ -311,6 +319,13 @@ function resetWorld() {
 function createStatic(obj) {
     let topRight = getVertTopRight(obj.vertices);
     let body = Bodies.fromVertices(0, 0, obj.vertices, {isStatic: true});
+    moveToTopRight(body, topRight.x, topRight.y);
+    return (new PhysicsBody(engine.world, body));
+}
+
+function createDynamic(obj) {
+    let topRight = getVertTopRight(obj.vertices);
+    let body = Bodies.fromVertices(0, 0, obj.vertices, {isStatic: false, density: 0.0004});
     moveToTopRight(body, topRight.x, topRight.y);
     return (new PhysicsBody(engine.world, body));
 }
@@ -345,7 +360,7 @@ function windowResized() {
 }
 
 function getEditorPosition(object) {
-    if (object.type == OBJ_TYPES.STATIC || object.type == OBJ_TYPES.DAMAGE) {
+    if (object.type == OBJ_TYPES.STATIC || object.type == OBJ_TYPES.DAMAGE || object.type == OBJ_TYPES.DYNAMIC) {
         let minX = Number.MAX_VALUE;
         let maxX = -Number.MAX_VALUE;
         let minY = Number.MAX_VALUE;
@@ -360,6 +375,7 @@ function getEditorPosition(object) {
     } else if (object.type == OBJ_TYPES.SPAWN_POINT || object.type == OBJ_TYPES.END_POINT) {
         return object.position;
     }
+    return {x: 0, y: 0};
 }
 
 function update() {
@@ -397,6 +413,7 @@ function updateGame() {
             Body.setAngularVelocity(game.motoBackWheel.body, game.motoBackWheel.body.angularVelocity - 0.001 * BACK_WHEEL_SPEED);
             Body.setAngularVelocity(game.motoFrontWheel.body, game.motoFrontWheel.body.angularVelocity - 0.001 * FRONT_WHEEL_SPEED);
         }
+        console.log(game.motoBody.body.angularVelocity);
         if (keys[LEFT_ARROW] >= 0 || keys[65] >= 0) {
             Body.setAngularVelocity(game.motoBody.body, game.motoBody.body.angularVelocity - 0.0001 * SPIN_SPEED);
         }
@@ -502,6 +519,12 @@ function updateEditor() {
     if (keys[52] == 1) {
         switchTool(3);
     }
+    if (keys[53] == 1) {
+        switchTool(4);
+    }
+    if (keys[54] == 1) {
+        switchTool(5);
+    }
 }
 
 function mouseDragged() {
@@ -528,7 +551,7 @@ function mousePressed() {
     if (inEditor) {
         const mouseWorld = toWorld(mouseX, mouseY);
         if (mouseButton == LEFT) {
-            if (!(mouseX < 60 || (mouseX > width - 300 && mouseY < 400) || (mouseX < 110 && mouseY > height - 110))) {
+            if (!(mouseX < 60 || (mouseX < 110 && mouseY > height - 110))) {
                 if (editor.tool == EDIT_TOOLS.SELECT || editor.tool == EDIT_TOOLS.MOVE || editor.tool == EDIT_TOOLS.DELETE) {
                     if (!editor.selecting) {
                         for (let i = 0; i < map.objects.length; i++) {
@@ -546,7 +569,7 @@ function mousePressed() {
                         }
                         map.objects = map.objects.filter(obj => {
                             if (obj.deleteMe !== undefined) {
-                                if (obj.type == OBJ_TYPES.STATIC || obj.type == OBJ_TYPES.DAMAGE) {
+                                if (obj.type == OBJ_TYPES.STATIC || obj.type == OBJ_TYPES.DAMAGE || obj.type == OBJ_TYPES.DYNAMIC) {
                                     return false;
                                 }
                             }
@@ -556,7 +579,7 @@ function mousePressed() {
                         if (editor.tool == EDIT_TOOLS.MOVE) {
                             let sv = selectVec();
                             let obj = map.objects[editor.selection];
-                            if (obj.type == OBJ_TYPES.STATIC) {
+                            if (obj.type == OBJ_TYPES.STATIC || obj.type == OBJ_TYPES.DAMAGE || obj.type == OBJ_TYPES.DYNAMIC) {
                                 obj.vertices.forEach(ver => {
                                     ver.x += sv.x;
                                     ver.y += sv.y;
@@ -568,7 +591,7 @@ function mousePressed() {
                         }
                         editor.selecting = false;
                     } 
-                } else if (editor.tool == EDIT_TOOLS.PAINT_GROUND || editor.tool == EDIT_TOOLS.PAINT_DAMAGE) {
+                } else if (editor.tool == EDIT_TOOLS.PAINT_STATIC || editor.tool == EDIT_TOOLS.PAINT_DAMAGE || editor.tool == EDIT_TOOLS.PAINT_DYNAMIC) {
                     if (!editor.painting) {
                         editor.painting = true;
                         editor.paintVertices.push({...mouseWorld});
@@ -581,7 +604,7 @@ function mousePressed() {
                             editor.painting = false;
                             if (editor.paintVertices.length >= 3) {
                                 map.objects.push({
-                                    type: editor.tool == EDIT_TOOLS.PAINT_DAMAGE ? OBJ_TYPES.DAMAGE : OBJ_TYPES.STATIC,
+                                    type: editor.tool == EDIT_TOOLS.PAINT_DAMAGE ? OBJ_TYPES.DAMAGE : (editor.tool == EDIT_TOOLS.PAINT_DYNAMIC ? OBJ_TYPES.DYNAMIC : OBJ_TYPES.STATIC),
                                     vertices: [...editor.paintVertices]
                                 });
                             }
@@ -643,6 +666,9 @@ function draw() {
         drawEditor();
     }
 
+    map.name = mapNameInput.value().trim();
+    
+    /*
     GRAVITY = gravSlider.value();
     FRONT_WHEEL_SPEED = frontSlider.value();
     BACK_WHEEL_SPEED = backSlider.value();
@@ -653,7 +679,7 @@ function draw() {
     WHEEL_DENSITY = wheelDensitySlider.value();
     WHEEL_STIFFNESS = stiffnessSlider.value();
 
-    map.name = mapNameInput.value().trim();
+    
 
     drawPanel(width - 290, 10, 280, 380, false);
 
@@ -685,6 +711,7 @@ function draw() {
     text(WHEEL_STIFFNESS, width - 20, 340);
 
     text("press r while playtesting to apply changed values", width - 20, 400);
+    */
 }
 
 function drawGame() {
@@ -714,8 +741,13 @@ function drawGame() {
     image(nathanImage, game.motoBody.body.position.x - 16, game.motoBody.body.position.y - 16, 32, 32);
 
     fill(200);
-    game.grounds.forEach(gro => {
+    game.staticBodies.forEach(gro => {
         gro.draw();
+    });
+
+    fill(100);
+    game.dynamicBodies.forEach(bdy => {
+        bdy.draw();
     });
 
     fill(200, 0, 0);
@@ -789,9 +821,14 @@ function drawEditor() {
         let obj = map.objects[i];
         const selected = editor.selecting && i == editor.selection;
         const sv = selected && editor.tool == EDIT_TOOLS.MOVE ? selectVec() : {x: 0, y: 0};
-        if (obj.type == OBJ_TYPES.STATIC || obj.type == OBJ_TYPES.DAMAGE) {
-            let dmg = obj.type == OBJ_TYPES.DAMAGE ? 0 : 200;
-            fill(200, dmg, dmg, selected ? 100 : 255);
+        if (obj.type == OBJ_TYPES.STATIC || obj.type == OBJ_TYPES.DAMAGE || obj.type == OBJ_TYPES.DYNAMIC) {
+            if (obj.type == OBJ_TYPES.STATIC) {
+                fill(200, selected ? 100 : 255);
+            } else if (obj.type == OBJ_TYPES.DAMAGE) {
+                fill(200, 0, 0, selected ? 100 : 255);
+            } else if (obj.type == OBJ_TYPES.DYNAMIC) {
+                fill(100, selected ? 100 : 255);
+            }
             stroke(0);
             beginShape();
             obj.vertices.forEach(ver => {
@@ -842,8 +879,10 @@ function drawEditor() {
     if (editor.painting) {
         if (editor.tool == EDIT_TOOLS.PAINT_DAMAGE) {
             fill(200, 0, 0, 100);
-        } else {
+        } else if (editor.tool == EDIT_TOOLS.PAINT_STATIC){
             fill(200, 100);
+        } else {
+            fill(0, 100);
         }
         
         stroke(0);
@@ -908,8 +947,12 @@ function drawEditor() {
             vertex(25, 30 + i * 50);
 
             endShape(CLOSE);
-        } else if (i == EDIT_TOOLS.PAINT_GROUND) { // paint ground
+        } else if (i == EDIT_TOOLS.PAINT_STATIC) { // paint ground
             fill(200);
+            stroke(0);
+            rect(15, 25 + i * 50, 30, 20);
+        } else if (i == EDIT_TOOLS.PAINT_DYNAMIC) { // paint ground
+            fill(100);
             stroke(0);
             rect(15, 25 + i * 50, 30, 20);
         } else if (i == EDIT_TOOLS.PAINT_DAMAGE) { // paint ground
